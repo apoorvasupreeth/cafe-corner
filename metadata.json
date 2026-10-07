@@ -1,0 +1,6 @@
+{
+  "name": "Cafe Corner",
+  "description": "Modern artisanal cafe and restaurant storefront with online ordering, dynamic Supabase menu, toppings customization, customer profiles, and Razorpay-ready checkout.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

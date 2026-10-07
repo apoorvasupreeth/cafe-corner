@@ -1,0 +1,233 @@
+// Supabase Edge Function: verify-razorpay-payment
+// Securely verifies Razorpay HMAC SHA256 payment signature server-side
+// Updates the existing Cafe Corner orders table upon valid cryptographic verification
+
+import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+};
+
+/**
+ * Securely generate HMAC SHA-256 hex digest using Web Crypto API
+ */
+async function generateHmacSha256Hex(message: string, secret: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const keyData = encoder.encode(secret);
+  const messageData = encoder.encode(message);
+
+  const key = await crypto.subtle.importKey(
+    'raw',
+    keyData,
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
+  );
+
+  const signatureBuffer = await crypto.subtle.sign('HMAC', key, messageData);
+  const hashArray = Array.from(new Uint8Array(signatureBuffer));
+  return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+/**
+ * Constant-time comparison to prevent timing attacks
+ */
+function secureCompare(a: string, b: string): boolean {
+  if (typeof a !== 'string' || typeof b !== 'string') return false;
+  if (a.length !== b.length) return false;
+
+  let mismatch = 0;
+  for (let i = 0; i < a.length; i++) {
+    mismatch |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+  return mismatch === 0;
+}
+
+serve(async (req) => {
+  // 10. Handle CORS preflight OPTIONS request
+  if (req.method === 'OPTIONS') {
+    return new Response('ok', { headers: corsHeaders });
+  }
+
+  try {
+    const body = await req.json().catch(() => ({}));
+    const {
+      order_id,
+      razorpay_order_id,
+      razorpay_payment_id,
+      razorpay_signature,
+    } = body;
+
+    // 1. Validate that all four values are present
+    if (!order_id || !razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
+      return new Response(
+        JSON.stringify({
+          verified: false,
+          error: 'Missing required parameters. Required: order_id, razorpay_order_id, razorpay_payment_id, razorpay_signature',
+        }),
+        {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        }
+      );
+    }
+
+    // 2. Read RAZORPAY_KEY_SECRET strictly from Edge Function environment
+    const keySecret = Deno.env.get('RAZORPAY_KEY_SECRET');
+    if (!keySecret) {
+      console.error('RAZORPAY_KEY_SECRET is not configured in Supabase Edge Secrets');
+      return new Response(
+        JSON.stringify({
+          verified: false,
+          error: 'Server payment configuration error: RAZORPAY_KEY_SECRET secret missing',
+        }),
+        {
+          status: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        }
+      );
+    }
+
+    // 3. Initialize Supabase Service Role client to retrieve and update the order
+    const supabaseUrl = Deno.env.get('SUPABASE_URL') || '';
+    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
+
+    if (!supabaseUrl || !supabaseServiceKey) {
+      console.error('SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY is missing from environment');
+      return new Response(
+        JSON.stringify({
+          verified: false,
+          error: 'Database connection configuration error in Edge Function',
+        }),
+        {
+          status: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        }
+      );
+    }
+
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+    // Retrieve the existing Cafe Corner order from the orders table
+    const { data: existingOrder, error: orderFetchError } = await supabase
+      .from('orders')
+      .select('id, payment_status, order_status, razorpay_order_id, total_amount')
+      .eq('id', order_id)
+      .single();
+
+    if (orderFetchError || !existingOrder) {
+      console.error('Order not found in database:', order_id, orderFetchError);
+      return new Response(
+        JSON.stringify({
+          verified: false,
+          error: `Order with ID ${order_id} not found`,
+        }),
+        {
+          status: 404,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        }
+      );
+    }
+
+    // 4. If existing order already had a razorpay_order_id recorded, verify it matches
+    if (existingOrder.razorpay_order_id && existingOrder.razorpay_order_id !== razorpay_order_id) {
+      console.error('Razorpay order ID mismatch:', {
+        stored: existingOrder.razorpay_order_id,
+        received: razorpay_order_id,
+      });
+      return new Response(
+        JSON.stringify({
+          verified: false,
+          error: 'Razorpay order ID mismatch with stored order',
+        }),
+        {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        }
+      );
+    }
+
+    // 5. Generate the Razorpay signature using HMAC SHA256: razorpay_order_id + "|" + razorpay_payment_id
+    const payloadToSign = `${razorpay_order_id}|${razorpay_payment_id}`;
+    const generatedSignature = await generateHmacSha256Hex(payloadToSign, keySecret);
+
+    // 6. Securely compare the generated signature with razorpay_signature
+    const isSignatureValid = secureCompare(
+      generatedSignature.toLowerCase(),
+      razorpay_signature.toLowerCase()
+    );
+
+    // 7. If verification fails: do NOT mark the order as paid; return error
+    if (!isSignatureValid) {
+      console.warn('Razorpay signature verification failed for order:', order_id);
+      return new Response(
+        JSON.stringify({
+          verified: false,
+          error: 'Invalid payment signature verification failed',
+        }),
+        {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        }
+      );
+    }
+
+    // 8. If verification succeeds: update the existing orders row
+    // payment_status = 'paid'
+    // razorpay_order_id = supplied order ID
+    // razorpay_payment_id = supplied payment ID
+    // razorpay_signature = supplied signature
+    // Keep existing order_status unchanged.
+    const { error: updateError } = await supabase
+      .from('orders')
+      .update({
+        payment_status: 'paid',
+        razorpay_order_id: razorpay_order_id,
+        razorpay_payment_id: razorpay_payment_id,
+        razorpay_signature: razorpay_signature,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', order_id);
+
+    if (updateError) {
+      console.error('Failed to update order payment status in database:', updateError);
+      return new Response(
+        JSON.stringify({
+          verified: false,
+          error: 'Payment verified, but failed to update order record in database',
+        }),
+        {
+          status: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        }
+      );
+    }
+
+    // 9. Return success response format
+    return new Response(
+      JSON.stringify({
+        verified: true,
+        order_id: order_id,
+        payment_status: 'paid',
+      }),
+      {
+        status: 200,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      }
+    );
+  } catch (err: any) {
+    console.error('Unhandled Edge Function error:', err);
+    return new Response(
+      JSON.stringify({
+        verified: false,
+        error: err?.message || 'Internal server error processing payment verification',
+      }),
+      {
+        status: 500,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      }
+    );
+  }
+});

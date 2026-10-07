@@ -1,0 +1,22 @@
+@import "tailwindcss";
+
+@theme {
+  --font-serif: "Playfair Display", Georgia, serif;
+  --font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+  --color-cafe-cream: #FDFBF7;
+  --color-cafe-dark: #1E1B18;
+  --color-cafe-warm: #3A2E2B;
+  --color-cafe-accent: #C27838;
+}
+
+@layer base {
+  body {
+    font-family: var(--font-sans);
+    background-color: #FDFBF7;
+    color: #26211E;
+    overflow-x: hidden;
+  }
+  h1, h2, h3, .font-display {
+    font-family: var(--font-serif);
+  }
+}
