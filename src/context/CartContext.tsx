@@ -1,5 +1,6 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import type { CartItem, MenuItem, Topping } from '../types/database';
+import { useAuth } from './AuthContext';
 
 interface CartContextType {
   items: CartItem[];
@@ -24,6 +25,9 @@ const FREE_DELIVERY_THRESHOLD = 500;
 const STANDARD_DELIVERY_FEE = 40;
 
 export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { user } = useAuth();
+  const prevUserRef = useRef(user);
+
   const [items, setItems] = useState<CartItem[]>(() => {
     if (typeof window === 'undefined') return [];
     try {
@@ -38,9 +42,47 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isCartDrawerOpen, setIsCartDrawerOpen] = useState(false);
   const [customizingItem, setCustomizingItem] = useState<MenuItem | null>(null);
 
+  // Automatically clear cart when user signs out
+  useEffect(() => {
+    if (prevUserRef.current && !user) {
+      setItems([]);
+      setIsCartDrawerOpen(false);
+      setCustomizingItem(null);
+      try {
+        localStorage.removeItem(CART_STORAGE_KEY);
+      } catch (e) {
+        console.warn('Error clearing cart on user sign-out:', e);
+      }
+    }
+    prevUserRef.current = user;
+  }, [user]);
+
+  // Listen to auth-signed-out custom window event as an additional safety net
+  useEffect(() => {
+    const handleAuthSignedOut = () => {
+      setItems([]);
+      setIsCartDrawerOpen(false);
+      setCustomizingItem(null);
+      try {
+        localStorage.removeItem(CART_STORAGE_KEY);
+      } catch (e) {
+        console.warn('Error clearing cart on auth-signed-out event:', e);
+      }
+    };
+
+    window.addEventListener('auth-signed-out', handleAuthSignedOut);
+    return () => {
+      window.removeEventListener('auth-signed-out', handleAuthSignedOut);
+    };
+  }, []);
+
   useEffect(() => {
     try {
-      localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(items));
+      if (items.length === 0) {
+        localStorage.removeItem(CART_STORAGE_KEY);
+      } else {
+        localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(items));
+      }
     } catch (e) {
       console.warn('Error writing cart to localStorage:', e);
     }
@@ -119,6 +161,11 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const clearCart = () => {
     setItems([]);
+    try {
+      localStorage.removeItem(CART_STORAGE_KEY);
+    } catch (e) {
+      console.warn('Error clearing cart from localStorage:', e);
+    }
   };
 
   const totalItemCount = items.reduce((sum, item) => sum + item.quantity, 0);

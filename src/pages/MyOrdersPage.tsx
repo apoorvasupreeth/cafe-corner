@@ -98,7 +98,7 @@ export const MyOrdersPage: React.FC<{ onOpenAuth: () => void }> = ({ onOpenAuth 
       case 'pending':
         return (
           <span className="bg-amber-50 text-amber-800 border border-amber-200/80 px-2 py-0.5 rounded text-[11px] font-semibold tracking-wide">
-            Cash on Delivery
+            Payment Pending
           </span>
         );
       case 'failed':

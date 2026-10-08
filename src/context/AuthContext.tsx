@@ -102,7 +102,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     });
 
     // Auth state subscription
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       setSession(session);
       setUser(session?.user ?? null);
       if (session?.user) {
@@ -110,6 +110,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       } else {
         if (!localStorage.getItem(ACTIVE_SESSION_STORAGE_KEY)) {
           setProfile(null);
+        }
+        if (event === 'SIGNED_OUT') {
+          try {
+            localStorage.removeItem('cafe_corner_cart_v1');
+            if (typeof window !== 'undefined') {
+              window.dispatchEvent(new CustomEvent('auth-signed-out'));
+            }
+          } catch (e) {
+            console.warn('Error clearing cart storage on auth change:', e);
+          }
         }
       }
       setIsLoading(false);
@@ -288,6 +298,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const signOut = async () => {
     localStorage.removeItem(ACTIVE_SESSION_STORAGE_KEY);
+    try {
+      localStorage.removeItem('cafe_corner_cart_v1');
+    } catch (e) {
+      console.warn('Error removing cart storage on signOut:', e);
+    }
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('auth-signed-out'));
+    }
     if (supabase) {
       await supabase.auth.signOut().catch(() => {});
     }

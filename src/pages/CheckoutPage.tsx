@@ -184,7 +184,7 @@ export const CheckoutPage: React.FC<{ onOpenAuth: () => void }> = ({ onOpenAuth 
           setSubmittingStep('Opening Razorpay Test Payment Modal...');
 
           // Step 7: Open Razorpay Checkout modal
-          const razorpayKeyId = rzpOrder.keyId || import.meta.env.VITE_RAZORPAY_KEY_ID || 'rzp_test_TkzhABU3U0BoGy';
+          const razorpayKeyId = rzpOrder.keyId || import.meta.env.VITE_RAZORPAY_KEY_ID || '';
 
           const options: any = {
             key: razorpayKeyId,

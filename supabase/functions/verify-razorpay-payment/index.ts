@@ -60,12 +60,12 @@ serve(async (req) => {
       razorpay_signature,
     } = body;
 
-    // 1. Validate that all four values are present
-    if (!order_id || !razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
+    // 1. Validate that required parameters are present
+    if (!order_id || !razorpay_payment_id) {
       return new Response(
         JSON.stringify({
           verified: false,
-          error: 'Missing required parameters. Required: order_id, razorpay_order_id, razorpay_payment_id, razorpay_signature',
+          error: 'Missing required parameters. Required: order_id, razorpay_payment_id',
         }),
         {
           status: 400,
@@ -113,7 +113,7 @@ serve(async (req) => {
     // Retrieve the existing Cafe Corner order from the orders table
     const { data: existingOrder, error: orderFetchError } = await supabase
       .from('orders')
-      .select('id, payment_status, order_status, razorpay_order_id, total_amount')
+      .select('id, payment_status, order_status, razorpay_order_id, razorpay_payment_id, total_amount')
       .eq('id', order_id)
       .single();
 
@@ -130,6 +130,10 @@ serve(async (req) => {
         }
       );
     }
+
+    // Duplicate email prevention using existing database structure:
+    // Check if the order was already verified and marked as 'paid' prior to this request
+    const isAlreadyPaid = existingOrder.payment_status === 'paid';
 
     // 4. If existing order already had a razorpay_order_id recorded, verify it matches
     if (existingOrder.razorpay_order_id && existingOrder.razorpay_order_id !== razorpay_order_id) {
@@ -149,23 +153,49 @@ serve(async (req) => {
       );
     }
 
-    // 5. Generate the Razorpay signature using HMAC SHA256: razorpay_order_id + "|" + razorpay_payment_id
-    const payloadToSign = `${razorpay_order_id}|${razorpay_payment_id}`;
-    const generatedSignature = await generateHmacSha256Hex(payloadToSign, keySecret);
+    let isSignatureValid = false;
 
-    // 6. Securely compare the generated signature with razorpay_signature
-    const isSignatureValid = secureCompare(
-      generatedSignature.toLowerCase(),
-      razorpay_signature.toLowerCase()
-    );
+    // 5. Primary Verification: HMAC SHA-256 verification when genuine order_id and signature are present
+    if (razorpay_order_id && razorpay_signature && !razorpay_order_id.startsWith('order_pay_')) {
+      const payloadToSign = `${razorpay_order_id}|${razorpay_payment_id}`;
+      const generatedSignature = await generateHmacSha256Hex(payloadToSign, keySecret);
+      isSignatureValid = secureCompare(
+        generatedSignature.toLowerCase(),
+        razorpay_signature.toLowerCase()
+      );
+    }
+
+    // 6. Direct Razorpay API verification fallback:
+    // When payment was completed via direct checkout (Netbanking/UPI) without a pre-generated Razorpay order ID
+    if (!isSignatureValid && razorpay_payment_id) {
+      const keyId = Deno.env.get('RAZORPAY_KEY_ID') || Deno.env.get('VITE_RAZORPAY_KEY_ID') || 'rzp_test_TkzhABU3U0BoGy';
+      try {
+        const authHeader = 'Basic ' + btoa(`${keyId}:${keySecret}`);
+        const rzpCheck = await fetch(`https://api.razorpay.com/v1/payments/${razorpay_payment_id}`, {
+          headers: { Authorization: authHeader },
+        });
+
+        if (rzpCheck.ok) {
+          const paymentData = await rzpCheck.json();
+          if (paymentData.status === 'captured' || paymentData.status === 'authorized') {
+            console.log(`Direct Razorpay payment ${razorpay_payment_id} verified as ${paymentData.status}`);
+            isSignatureValid = true;
+          }
+        } else {
+          console.warn(`Razorpay API check returned HTTP ${rzpCheck.status} for payment:`, razorpay_payment_id);
+        }
+      } catch (rzpErr) {
+        console.error('Error contacting Razorpay API for direct payment verification:', rzpErr);
+      }
+    }
 
     // 7. If verification fails: do NOT mark the order as paid; return error
     if (!isSignatureValid) {
-      console.warn('Razorpay signature verification failed for order:', order_id);
+      console.warn('Razorpay signature or API payment verification failed for order:', order_id);
       return new Response(
         JSON.stringify({
           verified: false,
-          error: 'Invalid payment signature verification failed',
+          error: 'Payment verification failed: invalid signature or unconfirmed transaction',
         }),
         {
           status: 400,
@@ -205,7 +235,33 @@ serve(async (req) => {
       );
     }
 
-    // 9. Return success response format
+    // 9. Automatically invoke send-order-email server-side after successful DB update
+    // Only dispatch if this is the initial payment verification (prevents duplicate emails on retries)
+    if (!isAlreadyPaid) {
+      try {
+        console.log(`Triggering send-order-email for newly paid order: ${order_id}`);
+        const { data: emailData, error: emailError } = await supabase.functions.invoke(
+          'send-order-email',
+          {
+            body: { order_id },
+          }
+        );
+
+        if (emailError) {
+          // Log clearly without affecting successful payment verification
+          console.error(`send-order-email invocation returned error for order ${order_id}:`, emailError);
+        } else {
+          console.log(`send-order-email successfully dispatched for order ${order_id}:`, emailData);
+        }
+      } catch (emailInvocationError) {
+        // Requirement 11: If email notification fails, DO NOT fail the payment or undo DB update.
+        console.error(`Exception while invoking send-order-email for order ${order_id}:`, emailInvocationError);
+      }
+    } else {
+      console.log(`Order ${order_id} was already marked as paid. Skipping send-order-email to avoid duplicate notification.`);
+    }
+
+    // 10. Return success response format (strictly preserves frontend compatibility)
     return new Response(
       JSON.stringify({
         verified: true,

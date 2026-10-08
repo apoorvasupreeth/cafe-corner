@@ -178,6 +178,7 @@ export async function getProfile(userId: string): Promise<Profile | null> {
 
   return {
     ...data,
+    role: data.role || null,
     name: data.full_name || data.name || '',
     full_name: data.full_name || data.name || '',
     address: data.address || data.delivery_address || '',
@@ -211,6 +212,10 @@ export async function updateProfile(userId: string, profileData: Partial<Profile
     payload.address = addressVal;
   }
 
+  if (profileData.role !== undefined) {
+    payload.role = profileData.role;
+  }
+
   const { data, error } = await supabase
     .from('profiles')
     .upsert(payload)
@@ -224,6 +229,7 @@ export async function updateProfile(userId: string, profileData: Partial<Profile
 
   return {
     ...data,
+    role: data.role || null,
     name: data.full_name || data.name || '',
     full_name: data.full_name || data.name || '',
     address: data.address || data.delivery_address || '',
@@ -428,3 +434,57 @@ export async function updateOrderPaymentStatus(
 
   return data;
 }
+
+/**
+ * Fetch all orders with item details for admin dashboard via live Supabase
+ * Uses existing RLS policies where role = 'admin' has full read access
+ */
+export async function getAllOrdersForAdmin(): Promise<Order[]> {
+  if (!supabase) throw new Error('Supabase client is not configured');
+
+  const { data, error } = await supabase
+    .from('orders')
+    .select('*, order_items(*, menu_items(*))')
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    console.error('Error fetching admin orders from Supabase:', error);
+    throw error;
+  }
+
+  return data || [];
+}
+
+/**
+ * Update order status by authorized admin in Supabase
+ */
+export async function updateOrderStatusByAdmin(
+  orderId: string,
+  newStatus: Order['order_status']
+): Promise<Order | null> {
+  if (!supabase) throw new Error('Supabase client is not configured');
+
+  const { data, error } = await supabase
+    .from('orders')
+    .update({
+      order_status: newStatus,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', orderId)
+    .select('*, order_items(*, menu_items(*))')
+    .single();
+
+  if (error) {
+    console.error('Error updating order status in Supabase:', error);
+    throw error;
+  }
+
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(
+      new CustomEvent('order-status-updated', { detail: { order: data } })
+    );
+  }
+
+  return data;
+}
+

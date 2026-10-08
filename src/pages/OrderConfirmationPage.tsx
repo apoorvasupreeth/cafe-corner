@@ -127,7 +127,11 @@ export const OrderConfirmationPage: React.FC = () => {
               <div className="pt-2 border-t border-stone-100 flex items-center justify-between">
                 <span>Payment Mode:</span>
                 <span className="font-semibold uppercase text-stone-800">
-                  {order.payment_status === 'paid' ? 'Razorpay (Paid Online)' : 'Cash / UPI on Delivery'}
+                  {order.payment_status === 'paid'
+                    ? 'Razorpay (Paid Online)'
+                    : order.payment_status === 'failed'
+                    ? 'Payment Failed'
+                    : 'Payment Pending / Processing'}
                 </span>
               </div>
             </div>

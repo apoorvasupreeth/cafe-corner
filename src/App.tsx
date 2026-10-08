@@ -21,6 +21,7 @@ import { OrderConfirmationPage } from './pages/OrderConfirmationPage';
 import { MyOrdersPage } from './pages/MyOrdersPage';
 import { ProfilePage } from './pages/ProfilePage';
 import { ContactPage } from './pages/ContactPage';
+import { AdminOrdersPage } from './pages/AdminOrdersPage';
 
 const AppContent: React.FC = () => {
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
@@ -51,6 +52,9 @@ const AppContent: React.FC = () => {
           <Route path="/my-orders" element={<MyOrdersPage onOpenAuth={() => handleOpenAuth('signin')} />} />
           <Route path="/profile" element={<ProfilePage onOpenAuth={() => handleOpenAuth('signin')} />} />
           <Route path="/contact" element={<ContactPage />} />
+          {/* Admin Order Management Routes */}
+          <Route path="/admin/orders" element={<AdminOrdersPage onOpenAuth={() => handleOpenAuth('signin')} />} />
+          <Route path="/admin" element={<AdminOrdersPage onOpenAuth={() => handleOpenAuth('signin')} />} />
         </Routes>
       </main>
 

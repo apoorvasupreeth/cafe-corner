@@ -80,139 +80,56 @@ export async function loadRazorpayScript(): Promise<boolean> {
 }
 
 /**
- * Call Supabase Edge Function 'create_payment' or 'create-razorpay-order' with the existing Cafe Corner order_id
- * Returns: { razorpay_order_id, amount, currency, key_id }
+ * Call Supabase Edge Function 'create-razorpay-order' with the existing Cafe Corner order_id
+ * Returns: { id, amount, currency, keyId, isSimulated: false }
  */
 export async function createRazorpayOrder(
   amountInRupees: number,
   orderId: string
 ): Promise<RazorpayOrderResponse> {
+  if (!supabase) {
+    throw new Error('Supabase client is not configured');
+  }
+
   const amountInPaise = Math.round(amountInRupees * 100);
-  const fallbackKeyId = import.meta.env.VITE_RAZORPAY_KEY_ID || 'rzp_test_TkzhABU3U0BoGy';
 
-  // 1. Primary Edge Function Call: 'create_payment'
-  if (supabase) {
-    try {
-      const { data, error } = await supabase.functions.invoke('create_payment', {
-        body: {
-          order_id: orderId,
-          amount: amountInPaise,
-          currency: 'INR',
-          receipt: orderId,
-        },
-      });
+  const { data, error } = await supabase.functions.invoke('create-razorpay-order', {
+    body: {
+      order_id: orderId,
+      amount: amountInPaise,
+      currency: 'INR',
+      receipt: orderId,
+    },
+  });
 
-      if (!error && data) {
-        const razorpayOrderId = data.razorpay_order_id || data.id;
-        if (razorpayOrderId && typeof razorpayOrderId === 'string' && !razorpayOrderId.startsWith('order_cc_')) {
-          return {
-            id: razorpayOrderId,
-            amount: data.amount || amountInPaise,
-            currency: data.currency || 'INR',
-            keyId: data.key_id || data.keyId || fallbackKeyId,
-            isSimulated: false,
-          };
-        }
-      }
-      if (error) {
-        console.warn('Edge Function create_payment notice:', error.message || error);
-      }
-    } catch (err) {
-      console.warn('create_payment invoke failed, trying create-razorpay-order:', err);
-    }
-
-    // 2. Secondary Edge Function Call: 'create-razorpay-order'
-    try {
-      const { data, error } = await supabase.functions.invoke('create-razorpay-order', {
-        body: {
-          order_id: orderId,
-          amount: amountInPaise,
-          currency: 'INR',
-          receipt: orderId,
-        },
-      });
-
-      if (!error && data) {
-        const razorpayOrderId = data.razorpay_order_id || data.id;
-        if (razorpayOrderId && typeof razorpayOrderId === 'string' && !razorpayOrderId.startsWith('order_cc_')) {
-          return {
-            id: razorpayOrderId,
-            amount: data.amount || amountInPaise,
-            currency: data.currency || 'INR',
-            keyId: data.key_id || data.keyId || fallbackKeyId,
-            isSimulated: false,
-          };
-        }
-      }
-    } catch {
-      // Continue to next fallback
-    }
-
-    // 3. Tertiary Edge Function Call: 'create_order'
-    try {
-      const { data, error } = await supabase.functions.invoke('create_order', {
-        body: {
-          order_id: orderId,
-          amount: amountInPaise,
-          currency: 'INR',
-          receipt: orderId,
-        },
-      });
-
-      if (!error && data) {
-        const razorpayOrderId = data.razorpay_order_id || data.id;
-        if (razorpayOrderId && typeof razorpayOrderId === 'string' && !razorpayOrderId.startsWith('order_cc_')) {
-          return {
-            id: razorpayOrderId,
-            amount: data.amount || amountInPaise,
-            currency: data.currency || 'INR',
-            keyId: data.key_id || data.keyId || fallbackKeyId,
-            isSimulated: false,
-          };
-        }
-      }
-    } catch {
-      // Continue to local server fallback
-    }
+  if (error) {
+    console.error('Edge Function create-razorpay-order error:', error);
+    const errorMsg =
+      (error as any)?.message ||
+      (typeof error === 'string' ? error : 'Failed to create Razorpay order');
+    throw new Error(errorMsg);
   }
 
-  // 4. Server proxy endpoint fallback
-  try {
-    const response = await fetch('/api/razorpay/create-order', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        amount: amountInPaise,
-        currency: 'INR',
-        receipt: orderId,
-        order_id: orderId,
-      }),
-    });
-
-    if (response.ok) {
-      const data = await response.json();
-      const rzpId = data.razorpay_order_id || data.id;
-      if (rzpId && typeof rzpId === 'string' && !rzpId.startsWith('order_cc_') && !data.isSimulated) {
-        return {
-          id: rzpId,
-          amount: data.amount || amountInPaise,
-          currency: data.currency || 'INR',
-          keyId: data.key_id || data.keyId || fallbackKeyId,
-          isSimulated: false,
-        };
-      }
-    }
-  } catch (err) {
-    console.warn('Server API create-order route notice:', err);
+  const razorpayOrderId = data?.id || data?.razorpay_order_id;
+  if (!razorpayOrderId) {
+    console.error('create-razorpay-order did not return a valid order ID:', data);
+    throw new Error('Payment gateway error: Razorpay order ID was not generated');
   }
 
-  // 5. Fallback placeholder order structure (Direct Checkout compatible)
+  const keyId = data?.keyId || data?.key_id;
+  if (!keyId) {
+    console.error('create-razorpay-order did not return Razorpay Key ID:', data);
+    throw new Error(
+      'Payment gateway configuration error: Razorpay Key ID is missing from server response. Please verify RAZORPAY_KEY_ID secret in Supabase Dashboard.'
+    );
+  }
+
   return {
-    id: '',
-    amount: amountInPaise,
-    currency: 'INR',
-    keyId: fallbackKeyId,
-    isSimulated: true,
+    id: razorpayOrderId,
+    amount: data.amount || amountInPaise,
+    currency: data.currency || 'INR',
+    keyId: keyId,
+    isSimulated: false,
   };
 }
 

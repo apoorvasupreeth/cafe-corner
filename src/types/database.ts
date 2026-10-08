@@ -48,6 +48,7 @@ export interface Profile {
   delivery_address?: string | null;
   address?: string | null;
   email?: string | null;
+  role?: string | null;
   created_at?: string;
   updated_at?: string;
 }
