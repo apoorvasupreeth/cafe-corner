@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Search, AlertCircle, Coffee, RotateCw, Sparkles } from 'lucide-react';
+import { motion } from 'motion/react';
 import { getCategories, getMenuItems, isSupabaseConfigured } from '../lib/supabase';
 import type { Category, MenuItem } from '../types/database';
 import { MenuItemRow } from '../components/MenuItemRow';
@@ -221,16 +222,20 @@ export const MenuPage: React.FC = () => {
             const categoryGif = getCategoryGif(category.name, categoryIndex);
 
             return (
-              <section
+              <motion.section
                 key={category.id || categoryIndex}
-                className="bg-white rounded-2xl border border-stone-200/90 shadow-xs overflow-hidden"
+                initial={{ opacity: 0, y: 24 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true, margin: '-40px' }}
+                transition={{ duration: 0.5, delay: categoryIndex * 0.08 }}
+                className="group bg-white rounded-2xl border border-stone-200/90 shadow-xs overflow-hidden"
               >
                 {/* 1 Image Header Banner with prominent animated GIF badge for this Category */}
                 <div className="relative h-44 sm:h-52 w-full overflow-hidden">
                   <img
                     src={categoryImage}
                     alt={category.name}
-                    className="w-full h-full object-cover"
+                    className="w-full h-full object-cover transition-transform duration-700 ease-out group-hover:scale-105"
                     referrerPolicy="no-referrer"
                   />
                   <div className="absolute inset-0 bg-gradient-to-t from-stone-950/90 via-stone-950/50 to-stone-950/20" />
@@ -238,7 +243,7 @@ export const MenuPage: React.FC = () => {
                   <div className="absolute bottom-4 left-6 right-6 text-white flex flex-col sm:flex-row sm:items-end justify-between gap-3">
                     <div className="flex items-center gap-3.5">
                       {/* Small GIF badge for this Category */}
-                      <div className="w-13 h-13 sm:w-16 sm:h-16 rounded-xl bg-white/95 p-1.5 shadow-lg flex items-center justify-center shrink-0 border border-white/50 backdrop-blur-xs">
+                      <div className="w-13 h-13 sm:w-16 sm:h-16 rounded-xl bg-white/95 p-1.5 shadow-lg flex items-center justify-center shrink-0 border border-white/50 backdrop-blur-xs transition-transform duration-300 group-hover:scale-105 group-hover:rotate-3">
                         <img
                           src={categoryGif}
                           alt={`${category.name} animated gif`}
@@ -276,7 +281,7 @@ export const MenuPage: React.FC = () => {
                     ))}
                   </div>
                 </div>
-              </section>
+              </motion.section>
             );
           })}
         </div>

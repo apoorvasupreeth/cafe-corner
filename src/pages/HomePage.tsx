@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowRight, Coffee, Sparkles } from 'lucide-react';
+import { motion } from 'motion/react';
 import { getMenuItems, isSupabaseConfigured } from '../lib/supabase';
 import type { MenuItem } from '../types/database';
 import { MenuItemRow } from '../components/MenuItemRow';
@@ -44,9 +45,9 @@ export const HomePage: React.FC = () => {
 
   return (
     <div className="space-y-16 sm:space-y-24 pb-20">
-      {/* 1. Hero Section */}
+      {/* 1. Hero Section - Crisp Static Photo Background (Reverted from GIF/Video) */}
       <section className="relative min-h-[80vh] flex items-center justify-center overflow-hidden">
-        {/* Background photo with measured contrast scrim */}
+        {/* Background photo with warm measured contrast scrim */}
         <div className="absolute inset-0">
           <img
             src={localImages.hero}
@@ -57,17 +58,30 @@ export const HomePage: React.FC = () => {
           <div className="absolute inset-0 bg-gradient-to-t from-stone-950/90 via-stone-950/60 to-stone-950/40" />
         </div>
 
-        {/* Hero Content */}
-        <div className="relative z-10 max-w-4xl mx-auto px-4 sm:px-6 text-center text-white space-y-6 pt-12">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-stone-900/70 border border-stone-700/80 text-amber-300 text-xs tracking-wider uppercase backdrop-blur-xs">
+        {/* Hero Content with Smooth Entrance */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6, ease: 'easeOut' }}
+          className="relative z-10 max-w-4xl mx-auto px-4 sm:px-6 text-center text-white space-y-6 pt-12"
+        >
+          {/* Kicker Badge */}
+          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-stone-900/75 border border-stone-700/80 text-amber-300 text-xs tracking-wider uppercase backdrop-blur-xs">
             <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-            <span>Specialty Coffee & All-Day Artisan Brunch</span>
+            <span className="font-medium">Your Corner for Coffee & Cravings</span>
           </div>
 
+          {/* Main Headline */}
           <h1 className="font-serif text-4xl sm:text-6xl md:text-7xl font-bold tracking-tight text-amber-50 drop-shadow-md leading-[1.1] text-balance">
-            Where slow mornings meet soulful flavors.
+            Good Coffee. Great Snacks. Better Moments
           </h1>
 
+          {/* Subtitle */}
+          <p className="text-sm sm:text-base text-stone-200 max-w-2xl mx-auto font-light leading-relaxed">
+            From hot masala Maggi and wok-fired noodles to artisan grilled sandwiches and cooling ice creams. Made fresh to order in our cozy neighborhood kitchen.
+          </p>
+
+          {/* CTA Buttons */}
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4 pt-4">
             <Link
               to="/menu"
@@ -84,10 +98,10 @@ export const HomePage: React.FC = () => {
               <span>Visit Our Cafe</span>
             </Link>
           </div>
-        </div>
+        </motion.div>
       </section>
 
-      {/* 2. Featured Menu Showcase (Clean Rows Without Redundant Images) */}
+      {/* 2. Featured Menu Showcase (Clean Rows Without Redundant Images or GIFs) */}
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-8">
         <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 border-b border-stone-200/80 pb-4">
           <div>
